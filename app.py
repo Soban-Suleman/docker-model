@@ -1,48 +1,50 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jun 27 18:59:59 2024
+Created on Mon Jul  1 01:43:24 2024
 
 @author: HP
 """
 
-from flask import Flask, request, jsonify
-from transformers import BertTokenizer, BertForSequenceClassification
-import torch.nn.functional as F
-import numpy as np
-import re
-import json
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jul  1 00:50:12 2024
+
+@author: HP
+"""
+
+from flask import Flask, jsonify, request
 import pandas as pd
-import nltk
+from transformers import BertTokenizer, BertForSequenceClassification
+import torch
+import torch.nn.functional as F
+import re
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
+import nltk
 from sentence_transformers import SentenceTransformer, util
 
-# Initialize NLTK resources
+# Download NLTK data
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('wordnet')
 
 app = Flask(__name__)
 
-# Load the model and tokenizer for SMART evaluation
-smart_model = BertForSequenceClassification.from_pretrained('./smart_model')
+# Load the dataset from the uploaded Excel file
+file_path = 'SMAT Table.xlsx'
+df = pd.read_excel(file_path)
+
+# Normalize the titles in the dataframe for comparison
+df['Title_normalized'] = df['Title'].str.lower().str.replace(' ', '').str.replace('-', '').str.replace('_', '')
+
+# Load the tokenizer and model for SMART criteria
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertForSequenceClassification.from_pretrained('./smart_model', ignore_mismatched_sizes=True)
 
-# Load the model for similarity analysis
-similarity_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-def get_smart_scores(text):
-    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-    outputs = smart_model(**inputs)
-    logits = outputs.logits
-    probs = F.softmax(logits, dim=1)
-    score = probs.detach().numpy()[0][1]  # Get the probability of the positive class
-    return score
-
+# Function to preprocess text
 def preprocess_text(text):
     text = re.sub(r'#\S+', '', text)  # Remove hashtags
-    text = re.sub(r'[^a-zA-Z\s]', '', text)  # Remove special characters and numbers
     text = text.lower()
     tokens = word_tokenize(text)
     stop_words = set(stopwords.words('english'))
@@ -52,11 +54,63 @@ def preprocess_text(text):
     preprocessed_text = ' '.join(tokens)
     return preprocessed_text
 
+# Load the model for similarity scoring
+similarity_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Utility functions
+def get_goal_scores(goal_title):
+    normalized_title = goal_title.lower().replace(' ', '').replace('-', '').replace('_', '')
+    goal_scores = df[df['Title_normalized'] == normalized_title]
+    if goal_scores.empty:
+        return None
+    return {
+        "specific": float(goal_scores['specific'].values[0]),
+        "measurable": float(goal_scores['measurable'].values[0]),
+        "achievable": float(goal_scores['achievable'].values[0]),
+        "time_bound": float(goal_scores['time_bound'].values[0])
+    }
+
+def get_smart_scores(text):
+    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+    outputs = model(**inputs)
+    logits = outputs.logits
+    probs = torch.sigmoid(logits)
+    return probs.detach().numpy()[0]
+
+def evaluate_smart_criteria(title, text):
+    scores = get_smart_scores(text)
+    criteria = {
+        "specific": float(scores[0]),
+        "measurable": float(scores[1]),
+        "achievable": float(scores[2]),
+        "time_bound": float(scores[3])
+    }
+
+    goal_scores = get_goal_scores(title)
+    if not goal_scores:
+        return {
+            "title": title,
+            "text": text,
+            "criteria_scores": {},
+            "average_score": 0
+        }
+
+    selected_scores = {k: v for k, v in criteria.items() if goal_scores[k] != 0}
+    average_score = float(sum(selected_scores.values()) / len(selected_scores)) if selected_scores else 0
+
+    result = {
+        "title": title,
+        "text": text,
+        "criteria_scores": selected_scores,
+        "average_score": average_score
+    }
+    return result
+
 def normalize_weights(weights):
     total = sum(weights)
     return [w / total for w in weights]
 
-def compute_similarity_scores(project, business, weights, threshold=0.50):
+def compute_similarity_scores(project, business, weights, threshold=0.20):
     if len(weights) != len(business):
         raise ValueError("The number of weights must match the number of business statements.")
     
@@ -72,7 +126,6 @@ def compute_similarity_scores(project, business, weights, threshold=0.50):
         applied_weights = []
         for j, b_embedding in enumerate(business_embeddings):
             score = util.pytorch_cos_sim(p_embedding, b_embedding).item()
-            print(f"Similarity between '{project_keys[i]}' and '{business_keys[j]}': {score:.4f}")
             if score >= threshold:
                 scores.append(score)
                 applied_weights.append(weights[j])
@@ -95,104 +148,65 @@ def normalize_single_value(value, max_value, min_value=0):
         return 0.5
     return (value - min_value) / (max_value - min_value)
 
-@app.route('/evaluate', methods=['POST'])
-def evaluate():
-    data = request.get_json()
-    if not data or 'elements' not in data:
-        return jsonify({"error": "Invalid input, 'elements' key is required"}), 400
+# API endpoint for SMART criteria evaluation
+@app.route('/evaluate_smat_criteria', methods=['POST'])
+def evaluate_smart_criteria_api():
+    request_data = request.get_json()
+    artifact_name = request_data.get('artifactName')
+    elements = request_data.get('elements', {})
 
-    elements = data['elements']
+    evaluation_results = []
+    total_average_score = 0
+    count_of_scores = 0
 
-    results = {}
-    for key, text in elements.items():
-        if isinstance(text, dict):
-            # If the value is a dictionary, evaluate each nested value
-            nested_results = {}
-            for sub_key, sub_text in text.items():
-                criteria = {
-                    "Specific": get_smart_scores(f"Is this goal specific? {sub_text}"),
-                    "Measurable": get_smart_scores(f"Is this goal measurable? {sub_text}"),
-                    "Achievable": get_smart_scores(f"Is this goal achievable? {sub_text}"),        
-                    "Time-bound": get_smart_scores(f"Is this goal time-bound? {sub_text}")
-                }
+    def evaluate_nested_elements(main_title, elements):
+        for key, value in elements.items():
+            full_key = f"{main_title} - {key}"
+            if isinstance(value, str):
+                evaluation_result = evaluate_smart_criteria(main_title, value)
+                evaluation_result["nested_key"] = key
+                if evaluation_result["average_score"] > 0:
+                    nonlocal total_average_score, count_of_scores
+                    total_average_score += evaluation_result["average_score"]
+                    count_of_scores += 1
+                evaluation_results.append(evaluation_result)
+            elif isinstance(value, dict):
+                evaluate_nested_elements(full_key, value)
 
-                # Convert all numpy.float32 values to Python float
-                criteria = {k: float(v) for k, v in criteria.items()}
+    for key, value in elements.items():
+        if isinstance(value, str):
+            evaluation_result = evaluate_smart_criteria(key, value)
+            if evaluation_result["average_score"] > 0:
+                total_average_score += evaluation_result["average_score"]
+                count_of_scores += 1
+            evaluation_results.append(evaluation_result)
+        elif isinstance(value, dict):
+            evaluate_nested_elements(key, value)
 
-                total_score = sum(criteria.values())
-                average_score = total_score / len(criteria)
+    overall_average_score = total_average_score / count_of_scores if count_of_scores else 0
 
-                # Check if the average score meets the threshold
-                threshold = 0.5
-                if average_score > threshold:
-                    evaluation_message = "This goal meets the SMART criteria!"
-                else:
-                    evaluation_message = "This goal does not fully meet the SMART criteria."
-                    for criterion, score in criteria.items():
-                        if score <= threshold:
-                            evaluation_message += f" The goal is not {criterion.lower()}."
+    return jsonify({
+        "evaluation_results": evaluation_results,
+        "overall_average_score": overall_average_score
+    })
 
-                # Add the average score and evaluation message to the response dictionary
-                nested_results[sub_key] = {
-                    "text": sub_text,
-                    "criteria": criteria,
-                    "average_score": average_score,
-                    "evaluation_message": evaluation_message
-                }
-            results[key] = nested_results
-        else:
-            # If the value is not a dictionary, evaluate it directly
-            criteria = {
-                "Specific": get_smart_scores(f"Is this goal specific? {text}"),
-                "Measurable": get_smart_scores(f"Is this goal measurable? {text}"),
-                "Achievable": get_smart_scores(f"Is this goal achievable? {text}"),        
-                "Time-bound": get_smart_scores(f"Is this goal time-bound? {text}")
-            }
-
-            # Convert all numpy.float32 values to Python float
-            criteria = {k: float(v) for k, v in criteria.items()}
-
-            total_score = sum(criteria.values())
-            average_score = total_score / len(criteria)
-
-            # Check if the average score meets the threshold
-            threshold = 0.5
-            if average_score > threshold:
-                evaluation_message = "This goal meets the SMART criteria!"
-            else:
-                evaluation_message = "This goal does not fully meet the SMART criteria."
-                for criterion, score in criteria.items():
-                    if score <= threshold:
-                        evaluation_message += f" The goal is not {criterion.lower()}."
-
-            # Add the average score and evaluation message to the response dictionary
-            results[key] = {
-                "text": text,
-                "criteria": criteria,
-                "average_score": average_score,
-                "evaluation_message": evaluation_message
-            }
-
-    return jsonify(results)
-
+# API endpoint for project and business strategy analysis
 @app.route('/analyze', methods=['POST'])
 def analyze():
     data = request.get_json()
     artifacts = data['artifacts']
     
-    # Initialize empty dictionaries
     project_data = None
     business_data = None
     
-    # Determine which artifact is the project and which is the business plan
     for artifact in artifacts:
-        if artifact['artifactName'] == 'Charter':
-            project_data = artifact['GROKS']
-        elif artifact['artifactName'] == 'Business Plan':
-            business_data = artifact['GROKS']
+        if artifact['artifactName'] == 'ProjectStrategy':
+            project_data = artifact['GOCKS']
+        elif artifact['artifactName'] == 'BusinessObjective':
+            business_data = artifact['GOCKS']
     
     if project_data is None or business_data is None:
-        return jsonify({"error": "Both 'Charter' and 'Business Plan' artifacts must be provided."}), 400
+        return jsonify({"error": "Both 'ProjectStrategy' and 'BusinessObjective' artifacts must be provided."}), 400
     
     project_statements = {}
     business_statements = {}
@@ -216,13 +230,12 @@ def analyze():
     normalized_total_similarity_score = normalize_single_value(total_similarity_score, max_value=max_value)
     df_scores['Normalized Total Similarity Score'] = normalized_total_similarity_score
     
-    # Structure the output in the same format as the input, excluding the Business Plan part
     output = {
         "Total Feasibility Score": normalized_total_similarity_score,
         "artifacts": [
             {
-                "artifactName": "Charter",
-                "GROKS": {
+                "artifactName": "ProjectStrategy",
+                "GOCKS": {
                     key: {sub_key: {"Value": value, "Similarity Score": df_scores.loc[df_scores['Project Statement'] == f"{key} - {sub_key}", 'Weighted Average Similarity Score'].values[0]}
                           for sub_key, value in values.items()}
                     for key, values in project_data.items()
@@ -233,5 +246,5 @@ def analyze():
     
     return jsonify(output)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
