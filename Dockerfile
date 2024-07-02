@@ -11,8 +11,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download the pre-trained model files
-RUN pip install transformers && \
+RUN pip install transformers sentence-transformers && \
     python -c "from transformers import BertForSequenceClassification; BertForSequenceClassification.from_pretrained('bert-base-uncased').save_pretrained('./smart_model')"
+
+# Download NLTK data resources
+RUN python -m nltk.downloader punkt stopwords wordnet
 
 # Copy the rest of the application code into the container
 COPY . .

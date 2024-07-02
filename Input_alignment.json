@@ -1,0 +1,52 @@
+{
+  "artifacts": [
+    {
+      "artifactName": "Charter",
+      "GROKS": {
+        "Goals": {
+          "Secure Funding": "To secure $50,000 in funding to establish Donny's Food Truck restaurant in Small Town.",
+          "Establish Business Venture": "To provide the community with a diverse and convenient dining option while creating a successful and sustainable business venture.",
+          "Achieve Footfall": "To achieve a daily footfall of at least 100 customers within the first month.",
+          "Receive Positive Reviews": "To receive positive customer reviews and feedback on food quality and service.",
+          "Break Even": "To break even within six months of operation.",
+          "Establish Partnerships": "To establish partnerships with local events and businesses for regular appearances."
+        },
+        "Resources": {
+          "Food Truck": "High-quality food truck equipped with kitchen essentials.",
+          "Marketing Materials": "Banners, flyers, and social media campaigns.",
+          "Staff": "Skilled and friendly staff members trained in food safety and customer service.",
+          "Menu Options": "Diverse menu options catering to different tastes and dietary preferences."
+        },
+        "KPIs": {
+          "Footfall": "Achieve a daily footfall of at least 100 customers within the first month.",
+          "Customer Feedback": "Receive positive customer reviews and feedback on food quality and service.",
+          "Financial": "Break even within six months of operation."
+        }
+      }
+    },
+    {
+      "artifactName": "Business Plan",
+      "GROKS": {
+        "Goals": {
+          "Secure Funding": "To secure $50,000 in funding to establish Donny's Food Truck restaurant in Small Town.",
+          "Establish Business Venture": "To provide the community with a diverse and convenient dining option while creating a successful and sustainable business venture.",
+          "Achieve Footfall": "To achieve a daily footfall of at least 100 customers within the first month.",
+          "Receive Positive Reviews": "To receive positive customer reviews and feedback on food quality and service.",
+          "Break Even": "To break even within six months of operation.",
+          "Establish Partnerships": "To establish partnerships with local events and businesses for regular appearances."
+        },
+        "Resources": {
+          "Food Truck": "High-quality food truck equipped with kitchen essentials.",
+          "Marketing Materials": "Banners, flyers, and social media campaigns.",
+          "Staff": "Skilled and friendly staff members trained in food safety and customer service.",
+          "Menu Options": "Diverse menu options catering to different tastes and dietary preferences."
+        },
+        "KPIs": {
+          "Footfall": "Achieve a daily footfall of at least 100 customers within the first month.",
+          "Customer Feedback": "Receive positive customer reviews and feedback on food quality and service.",
+          "Financial": "Break even within six months of operation."
+        }
+      }
+    }
+  ]
+}
